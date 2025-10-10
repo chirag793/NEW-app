@@ -18,6 +18,7 @@ import { useStudy } from '@/hooks/study-context';
 import { Ionicons, FontAwesome } from '@expo/vector-icons';
 import { backgroundTimer } from '@/utils/background-timer';
 import * as Haptics from 'expo-haptics';
+import { playRemoteNotification } from '@/utils/notification-sound';
 // Audio notifications are handled via Web Audio API for web and console logs for mobile
 
 
@@ -70,97 +71,12 @@ export default function ImmersiveTimerScreen() {
   const hasCompletedSession = useRef(false);
 
   
-  // Play notification sound and vibration
-  const playNotificationSound = useCallback(async (isBreak: boolean = false) => {
-    // Add vibration for mobile devices
-    if (Platform.OS !== 'web') {
-      try {
-        if (isBreak) {
-          // Strong vibration pattern for break completion
-          await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
-          setTimeout(async () => {
-            await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
-          }, 200);
-          setTimeout(async () => {
-            await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-          }, 400);
-        } else {
-          // Very strong vibration pattern for work session completion
-          await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
-          setTimeout(async () => {
-            await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
-          }, 150);
-          setTimeout(async () => {
-            await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
-          }, 300);
-          setTimeout(async () => {
-            await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
-          }, 450);
-          setTimeout(async () => {
-            await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
-          }, 600);
-        }
-      } catch (error) {
-        console.log('Haptics not available:', error);
-      }
-    }
-    
-    if (Platform.OS === 'web') {
-      // Use Web Audio API for web - different tones for work vs break
-      try {
-        const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
-        
-        if (isBreak) {
-          // Gentle chime for break completion (lower frequency)
-          const oscillator = audioContext.createOscillator();
-          const gainNode = audioContext.createGain();
-          
-          oscillator.connect(gainNode);
-          gainNode.connect(audioContext.destination);
-          
-          oscillator.frequency.setValueAtTime(600, audioContext.currentTime);
-          oscillator.type = 'sine';
-          
-          gainNode.gain.setValueAtTime(0.2, audioContext.currentTime);
-          gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.8);
-          
-          oscillator.start(audioContext.currentTime);
-          oscillator.stop(audioContext.currentTime + 0.8);
-        } else {
-          // Alert sound for work session completion (triple beep)
-          for (let i = 0; i < 3; i++) {
-            setTimeout(() => {
-              const oscillator = audioContext.createOscillator();
-              const gainNode = audioContext.createGain();
-              
-              oscillator.connect(gainNode);
-              gainNode.connect(audioContext.destination);
-              
-              oscillator.frequency.setValueAtTime(800, audioContext.currentTime);
-              oscillator.type = 'sine';
-              
-              gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
-              gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.3);
-              
-              oscillator.start(audioContext.currentTime);
-              oscillator.stop(audioContext.currentTime + 0.3);
-            }, i * 400);
-          }
-        }
-      } catch (error) {
-        console.log('Web audio not available:', error);
-      }
-    } else {
-      // Use expo-audio for mobile devices
-      try {
-        // For mobile devices, just use console notification for now
-        // expo-audio requires hooks and would need significant refactoring
-        console.log(`🔔 ${isBreak ? 'Break' : 'Session'} completed!`);
-      } catch (error) {
-        console.log('Audio notification not available:', error);
-        // Fallback to console notification
-        console.log(`🔔 Notification: ${isBreak ? 'Break' : 'Session'} completed!`);
-      }
+  // Play only the remote notification sound from the Drive link
+  const playNotificationSound = useCallback(async () => {
+    try {
+      await playRemoteNotification();
+    } catch (err) {
+      console.warn('Remote notification failed:', err);
     }
   }, []);
 
@@ -277,8 +193,8 @@ export default function ImmersiveTimerScreen() {
     if (sessionType !== 'work') {
       console.log('Immersive - Skipping break, starting next work session');
       
-      // Play notification sound
-      await playNotificationSound(true);
+  // Play notification sound (Drive file)
+  await playNotificationSound();
       
       // Stop the timer
       setIsRunning(false);
@@ -391,8 +307,8 @@ export default function ImmersiveTimerScreen() {
       intervalRef.current = null;
     }
     
-    // Play notification sound for all session completions
-    await playNotificationSound(sessionType !== 'work');
+  // Play notification sound (Drive file)
+  await playNotificationSound();
     
     if (sessionType === 'work') {
       // Work session complete - ONLY save to history for work sessions

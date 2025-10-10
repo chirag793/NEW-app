@@ -1,5 +1,6 @@
 import * as SecureStore from 'expo-secure-store';
 import { Platform } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { StudySession, TestScore, Subject, StudyPlan } from '@/types/study';
 
 interface BackupData {
@@ -49,31 +50,36 @@ export class iCloudBackupService {
 
   // Check if iCloud Keychain is available
   static async isAvailable(): Promise<boolean> {
-    if (Platform.OS !== 'ios') {
-      return false;
-    }
-
     try {
-      // Test if we can write to and read from Keychain
-      const testKey = 'test_availability';
-      const testValue = 'test';
-      
-      await SecureStore.setItemAsync(testKey, testValue, {
-        keychainService: this.KEYCHAIN_SERVICE,
-        requireAuthentication: false,
-      });
-      
-      const result = await SecureStore.getItemAsync(testKey, {
-        keychainService: this.KEYCHAIN_SERVICE,
-        requireAuthentication: false,
-      });
-      
-      // Clean up test data
-      await SecureStore.deleteItemAsync(testKey, {
-        keychainService: this.KEYCHAIN_SERVICE,
-      });
-      
-      return result === testValue;
+      if (Platform.OS === 'ios') {
+        // Test if we can write to and read from Keychain
+        const testKey = 'test_availability';
+        const testValue = 'test';
+        
+        await SecureStore.setItemAsync(testKey, testValue, {
+          keychainService: this.KEYCHAIN_SERVICE,
+          requireAuthentication: false,
+        });
+        
+        const result = await SecureStore.getItemAsync(testKey, {
+          keychainService: this.KEYCHAIN_SERVICE,
+          requireAuthentication: false,
+        });
+        
+        // Clean up test data
+        await SecureStore.deleteItemAsync(testKey, {
+          keychainService: this.KEYCHAIN_SERVICE,
+        });
+        
+        return result === testValue;
+      }
+
+      // For Android and web, use AsyncStorage as a fallback (not iCloud Keychain)
+      const testKey = `${this.BACKUP_PREFIX}availability_test`;
+      await AsyncStorage.setItem(testKey, 'test');
+      const res = await AsyncStorage.getItem(testKey);
+      await AsyncStorage.removeItem(testKey);
+      return res === 'test';
     } catch (error) {
       console.error('iCloud Keychain availability check failed:', error);
       return false;
@@ -82,21 +88,13 @@ export class iCloudBackupService {
 
   // Get backup status
   static async getBackupStatus(userId?: string): Promise<BackupStatus> {
-    if (Platform.OS !== 'ios') {
-      return {
-        isAvailable: false,
-        backupCount: 0,
-        error: 'iCloud Keychain is only available on iOS'
-      };
-    }
-
     try {
       const isAvailable = await this.isAvailable();
       if (!isAvailable) {
         return {
           isAvailable: false,
           backupCount: 0,
-          error: 'iCloud Keychain is not available or accessible'
+          error: 'iCloud Keychain / fallback storage is not available or accessible'
         };
       }
 
@@ -131,14 +129,10 @@ export class iCloudBackupService {
     userId?: string,
     userEmail?: string
   ): Promise<{ success: boolean; error?: string }> {
-    if (Platform.OS !== 'ios') {
-      return { success: false, error: 'iCloud Keychain is only available on iOS' };
-    }
-
     try {
       const isAvailable = await this.isAvailable();
       if (!isAvailable) {
-        return { success: false, error: 'iCloud Keychain is not available' };
+        return { success: false, error: 'iCloud Keychain / fallback storage is not available' };
       }
 
       // Calculate metadata
@@ -173,11 +167,16 @@ export class iCloudBackupService {
       const timestamp = Date.now();
       const backupKey = `${this.BACKUP_PREFIX}${userId || 'guest'}_${timestamp}`;
 
-      // Save backup to Keychain
-      await SecureStore.setItemAsync(backupKey, JSON.stringify(backupData), {
-        keychainService: this.KEYCHAIN_SERVICE,
-        requireAuthentication: false,
-      });
+      if (Platform.OS === 'ios') {
+        // Save backup to Keychain
+        await SecureStore.setItemAsync(backupKey, JSON.stringify(backupData), {
+          keychainService: this.KEYCHAIN_SERVICE,
+          requireAuthentication: false,
+        });
+      } else {
+        // Fallback: use AsyncStorage for Android and web
+        await AsyncStorage.setItem(backupKey, JSON.stringify(backupData));
+      }
 
       // Add to backup index
       await this.addToBackupIndex(backupKey, userId);
@@ -188,10 +187,10 @@ export class iCloudBackupService {
       // Clean up old backups
       await this.cleanupOldBackups(userId);
 
-      console.log('iCloud backup created successfully:', backupKey);
+      console.log('Backup created successfully:', backupKey);
       return { success: true };
     } catch (error) {
-      console.error('Error creating iCloud backup:', error);
+      console.error('Error creating backup:', error);
       return {
         success: false,
         error: error instanceof Error ? error.message : 'Failed to create backup'
@@ -201,33 +200,34 @@ export class iCloudBackupService {
 
   // Get list of available backups
   static async getBackupList(userId?: string): Promise<BackupData[]> {
-    if (Platform.OS !== 'ios') {
-      return [];
-    }
-
     try {
       // Get backup index
       const indexKey = `${this.INDEX_KEY}_${userId || 'guest'}`;
-      const indexData = await SecureStore.getItemAsync(indexKey, {
-        keychainService: this.KEYCHAIN_SERVICE,
-        requireAuthentication: false,
-      });
-      
+      let indexData: string | null = null;
+
+      if (Platform.OS === 'ios') {
+        indexData = await SecureStore.getItemAsync(indexKey, { keychainService: this.KEYCHAIN_SERVICE, requireAuthentication: false });
+      } else {
+        indexData = await AsyncStorage.getItem(indexKey);
+      }
+
       if (!indexData) {
         return [];
       }
-      
+
       const backupKeys: string[] = JSON.parse(indexData);
       const backups: BackupData[] = [];
-      
+
       // Fetch each backup
       for (const backupKey of backupKeys) {
         try {
-          const data = await SecureStore.getItemAsync(backupKey, {
-            keychainService: this.KEYCHAIN_SERVICE,
-            requireAuthentication: false,
-          });
-          
+          let data: string | null = null;
+          if (Platform.OS === 'ios') {
+            data = await SecureStore.getItemAsync(backupKey, { keychainService: this.KEYCHAIN_SERVICE, requireAuthentication: false });
+          } else {
+            data = await AsyncStorage.getItem(backupKey);
+          }
+
           if (data) {
             const backupData = JSON.parse(data) as BackupData;
             backups.push(backupData);
@@ -238,7 +238,7 @@ export class iCloudBackupService {
           await this.removeFromBackupIndex(backupKey, userId);
         }
       }
-      
+
       // Sort by timestamp (newest first)
       return backups.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
     } catch (error) {
@@ -252,14 +252,10 @@ export class iCloudBackupService {
     backupTimestamp: string,
     userId?: string
   ): Promise<{ success: boolean; data?: BackupData['data']; error?: string }> {
-    if (Platform.OS !== 'ios') {
-      return { success: false, error: 'iCloud Keychain is only available on iOS' };
-    }
-
     try {
       const backups = await this.getBackupList(userId);
       const backup = backups.find(b => b.timestamp === backupTimestamp);
-      
+
       if (!backup) {
         return { success: false, error: 'Backup not found' };
       }
@@ -284,7 +280,7 @@ export class iCloudBackupService {
         dailyTargetHours: typeof backup.data.dailyTargetHours === 'number' ? backup.data.dailyTargetHours : 4,
       };
 
-      console.log('iCloud backup restored successfully:', {
+      console.log('Backup restored successfully:', {
         sessions: data.studySessions.length,
         scores: data.testScores.length,
         subjects: data.subjects.length,
@@ -293,7 +289,7 @@ export class iCloudBackupService {
 
       return { success: true, data };
     } catch (error) {
-      console.error('Error restoring from iCloud backup:', error);
+      console.error('Error restoring from backup:', error);
       return {
         success: false,
         error: error instanceof Error ? error.message : 'Failed to restore backup'
@@ -306,14 +302,10 @@ export class iCloudBackupService {
     backupTimestamp: string,
     userId?: string
   ): Promise<{ success: boolean; error?: string }> {
-    if (Platform.OS !== 'ios') {
-      return { success: false, error: 'iCloud Keychain is only available on iOS' };
-    }
-
     try {
       const backups = await this.getBackupList(userId);
       const backup = backups.find(b => b.timestamp === backupTimestamp);
-      
+
       if (!backup) {
         return { success: false, error: 'Backup not found' };
       }
@@ -322,17 +314,19 @@ export class iCloudBackupService {
       const timestamp = new Date(backupTimestamp).getTime();
       const backupKey = `${this.BACKUP_PREFIX}${userId || 'guest'}_${timestamp}`;
 
-      await SecureStore.deleteItemAsync(backupKey, {
-        keychainService: this.KEYCHAIN_SERVICE,
-      });
+      if (Platform.OS === 'ios') {
+        await SecureStore.deleteItemAsync(backupKey, { keychainService: this.KEYCHAIN_SERVICE });
+      } else {
+        await AsyncStorage.removeItem(backupKey);
+      }
 
       // Remove from backup index
       await this.removeFromBackupIndex(backupKey, userId);
 
-      console.log('iCloud backup deleted successfully:', backupKey);
+      console.log('Backup deleted successfully:', backupKey);
       return { success: true };
     } catch (error) {
-      console.error('Error deleting iCloud backup:', error);
+      console.error('Error deleting backup:', error);
       return {
         success: false,
         error: error instanceof Error ? error.message : 'Failed to delete backup'

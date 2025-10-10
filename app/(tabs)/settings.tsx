@@ -42,8 +42,6 @@ export default function SettingsScreen() {
     updateDailyTargetHours
   } = useStudy();
   const { user, signOut, signInWithApple, isLoading: authLoading, isAppleSignInAvailable, signInWithGoogle } = useAuth();
-
-  const [isDarkMode, setIsDarkMode] = useState(false);
   const [notificationsEnabled, setNotificationsEnabled] = useState(true);
   const [isExporting, setIsExporting] = useState(false);
   const [isRecovering, setIsRecovering] = useState(false);
@@ -69,24 +67,21 @@ export default function SettingsScreen() {
   }, [currentUser]);
 
   const checkiCloudStatus = async () => {
-    if (Platform.OS !== 'ios') {
-      setICloudStatus('unavailable');
-      return;
-    }
-
     try {
       const backupInfo = await iCloudBackupService.getBackupInfo(currentUser?.id);
       setICloudBackupInfo(backupInfo);
-      
-      if (backupInfo.isAvailable) {
+
+      if (backupInfo && backupInfo.isAvailable) {
         setICloudStatus(backupInfo.lastBackupDate ? 'synced' : 'available');
         setLastBackupTime(backupInfo.lastBackupDate || null);
         setBackupCount(backupInfo.backupCount);
       } else {
+        // Service responded but marked unavailable
         setICloudStatus('unavailable');
       }
     } catch (error) {
-      console.error('Error checking iCloud status:', error);
+      // Non-iOS platforms or service errors will be caught here; mark as unavailable but don't crash
+      console.warn('iCloud status check failed (platform may not support it):', error);
       setICloudStatus('unavailable');
     }
   };
@@ -475,6 +470,8 @@ export default function SettingsScreen() {
 
 
 
+  // dynamicStyles removed — dark mode setting was removed per user request
+
   return (
     <SafeAreaView style={styles.container}>
       <Stack.Screen options={{ title: 'Settings' }} />
@@ -489,7 +486,7 @@ export default function SettingsScreen() {
                 <FontAwesome name="user" size={24} color="#007AFF" />
                 <View style={styles.accountDetails}>
                   <Text style={styles.accountName}>{user.name}</Text>
-                  <Text style={styles.accountEmail}>{user.email}</Text>
+                    <Text style={styles.accountEmail}>{user.email}</Text>
                 </View>
               </View>
               <TouchableOpacity style={styles.signOutButton} onPress={signOut}>
@@ -501,37 +498,41 @@ export default function SettingsScreen() {
             <View style={styles.loginSection}>
               <View style={styles.loginPrompt}>
                 <MaterialIcons name="login" size={24} color="#8E8E93" />
-                <Text style={styles.loginPromptText}>Sign in to sync your data across devices</Text>
+                <Text style={styles.loginPromptText}>Sign-in will be available on Android and Web in the next update</Text>
               </View>
-              
-              {Platform.OS === 'ios' && isAppleSignInAvailable && (
-                <TouchableOpacity 
-                  style={styles.appleSignInButton} 
-                  onPress={signInWithApple}
-                  disabled={authLoading}
-                >
-                  <Text style={styles.appleSignInText}>
-                    {authLoading ? 'Signing in...' : (Platform.OS === 'ios' ? 'iCloud Login' : 'Sign in with Apple')}
-                  </Text>
-                </TouchableOpacity>
-              )}
 
-              {/* Google Sign-In (Android & Web) */}
-              {(Platform.OS !== 'ios') && (
-                <TouchableOpacity
-                  style={styles.googleSignInButton}
+              {Platform.OS === 'ios' ? (
+                // Only show iCloud / Apple sign-in on iOS
+                <TouchableOpacity 
+                  style={[styles.appleSignInButton, authLoading && styles.signInButtonDisabled]} 
                   onPress={async () => {
+                    if (!signInWithApple) {
+                      Alert.alert('Not Available', 'Apple/iCloud sign-in is not configured on this platform.');
+                      return;
+                    }
+
                     try {
-                      await signInWithGoogle?.();
+                      const result = await signInWithApple();
+                      if ((result as any)?.type === 'error') {
+                        Alert.alert('Sign-In Error', (result as any).error || 'Failed to sign in with iCloud');
+                      }
                     } catch (e) {
-                      console.error('Google sign-in error:', e);
-                      Alert.alert('Sign-In Error', 'Failed to sign in with Google.');
+                      console.error('Apple sign-in error:', e);
+                      Alert.alert('Sign-In Error', 'Failed to sign in with iCloud');
                     }
                   }}
                   disabled={authLoading}
                 >
-                  <Text style={styles.googleSignInText}>{authLoading ? 'Signing in...' : 'Sign in with Google'}</Text>
+                  <FontAwesome name="apple" size={20} color="#FFFFFF" style={styles.signInButtonIcon} />
+                  <Text style={styles.appleSignInText}>
+                    {authLoading ? 'Signing in...' : 'iCloud Login'}
+                  </Text>
                 </TouchableOpacity>
+              ) : (
+                // On Android & Web we do not provide login right now
+                <View style={{ paddingVertical: 8 }}>
+                  <Text style={[styles.loginPromptText, { color: '#999' }]}>Sign-in is not available on this platform.</Text>
+                </View>
               )}
             </View>
           )}
@@ -733,8 +734,21 @@ export default function SettingsScreen() {
                     style={styles.modernDatePicker}
                     textColor="#000000"
                     onChange={(event, selectedDate) => {
-                      if (selectedDate) {
-                        setTempNEETDate(selectedDate);
+                      if (Platform.OS === 'android') {
+                        if (event.type === 'set' && selectedDate) {
+                          updateExamDates({
+                            ...examDates,
+                            NEET_PG: selectedDate.toISOString().split('T')[0]
+                          });
+                          setShowNEETPGPicker(false);
+                          setTempNEETDate(null);
+                        } else {
+                          setShowNEETPGPicker(false);
+                        }
+                      } else {
+                        if (selectedDate) {
+                          setTempNEETDate(selectedDate);
+                        }
                       }
                     }}
                   />
@@ -810,8 +824,21 @@ export default function SettingsScreen() {
                     style={styles.modernDatePicker}
                     textColor="#000000"
                     onChange={(event, selectedDate) => {
-                      if (selectedDate) {
-                        setTempINICETDate(selectedDate);
+                      if (Platform.OS === 'android') {
+                        if (event.type === 'set' && selectedDate) {
+                          updateExamDates({
+                            ...examDates,
+                            INICET: selectedDate.toISOString().split('T')[0]
+                          });
+                          setShowINICETPicker(false);
+                          setTempINICETDate(null);
+                        } else {
+                          setShowINICETPicker(false);
+                        }
+                      } else {
+                        if (selectedDate) {
+                          setTempINICETDate(selectedDate);
+                        }
                       }
                     }}
                   />
@@ -972,18 +999,7 @@ export default function SettingsScreen() {
             />
           </View>
 
-          <View style={styles.settingItem}>
-            <View style={styles.settingLeft}>
-              {isDarkMode ? <Ionicons name="moon" size={20} color="#007AFF" /> : <Ionicons name="sunny" size={20} color="#007AFF" />}
-              <Text style={styles.settingText}>Dark Mode</Text>
-            </View>
-            <Switch
-              value={isDarkMode}
-              onValueChange={setIsDarkMode}
-              trackColor={{ false: '#E5E5EA', true: '#34C759' }}
-              thumbColor="#FFFFFF"
-            />
-          </View>
+          {/* Dark Mode option removed intentionally (non-functional) */}
         </View>
 
         {/* Danger Zone */}
@@ -1245,32 +1261,51 @@ const styles = StyleSheet.create({
   },
   appleSignInButton: {
     backgroundColor: '#000000',
-    borderRadius: 8,
+    borderRadius: 12,
     padding: 16,
     alignItems: 'center',
     marginBottom: 12,
+    flexDirection: 'row',
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
   },
   appleSignInText: {
     fontSize: 16,
     fontWeight: '600',
     color: '#FFFFFF',
+    marginLeft: 8,
   },
   googleSignInButton: {
     backgroundColor: '#FFFFFF',
-    borderRadius: 8,
-    padding: 14,
+    borderRadius: 12,
+    padding: 16,
     alignItems: 'center',
     marginBottom: 12,
     borderWidth: 1,
     borderColor: '#DDDDDD',
     flexDirection: 'row',
     justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
   },
   googleSignInText: {
     fontSize: 16,
     fontWeight: '600',
     color: '#1C1C1E',
     marginLeft: 8,
+  },
+  signInButtonDisabled: {
+    opacity: 0.6,
+  },
+  signInButtonIcon: {
+    marginRight: 8,
   },
   examDatesContainer: {
     marginTop: 24,
