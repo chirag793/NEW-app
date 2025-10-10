@@ -3,8 +3,8 @@
     "updates": {
       "enabled": false
     },
-    "name": "Study Tracker and Planner for INICET and NEET",
-    "slug": "study-tracker-planner-inic-et-neet",
+  "name": "NEET PG",
+    "slug": "study-tracker-planner",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
@@ -40,6 +40,7 @@
         "backgroundColor": "#ffffff"
       },
       "package": "app.rork.studytrackerplanner",
+      "versionCode": 3,
       "permissions": [
         "android.permission.RECORD_AUDIO",
         "android.permission.READ_EXTERNAL_STORAGE",
@@ -47,7 +48,8 @@
         "android.permission.INTERNET",
         "android.permission.CAMERA",
         "android.permission.VIBRATE",
-        "android.permission.MODIFY_AUDIO_SETTINGS"
+        "android.permission.MODIFY_AUDIO_SETTINGS",
+        "com.google.android.gms.permission.AD_ID"
       ]
     },
     "web": {

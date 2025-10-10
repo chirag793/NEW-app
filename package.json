@@ -9,7 +9,7 @@
     "web": "expo start --web",
     "build:android": "expo build:android",
     "eas:build:android:apk": "eas build --platform android --profile production --non-interactive",
-    "eas:build:android:aab": "eas build --platform android --profile production --non-interactive --profile production",
+  "eas:build:android:aab": "eas build --platform android --profile production --non-interactive",
     "prebuild": "expo prebuild",
     "lint": "expo lint"
   },

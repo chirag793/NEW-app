@@ -189,21 +189,95 @@ If some information is not visible, omit those fields. Focus on extracting accur
     try {
       // Map extracted subject scores to our subject IDs
       const subjectScoresList: SubjectScore[] = [];
-      
-      if (extractedData.subjectScores) {
+
+      if (extractedData.subjectScores && extractedData.subjectScores.length > 0) {
+        // Helper: normalize strings for better matching
+        const normalize = (s?: string) => (s || '').toLowerCase().replace(/[^a-z0-9]/g, '').trim();
+
+        // Build lookup from normalized subject name -> subject
+        const lookup = new Map<string, typeof subjects[0]>();
+        subjects.forEach(sub => lookup.set(normalize(sub.name), sub));
+
+        // Common synonyms mapping for OCR/AI variations -> subject id
+        const SYNONYMS: Record<string, string> = {
+          'forensics': 'forensic',
+          'forensicmedicine': 'forensic',
+          'forensic': 'forensic',
+          'obgyn': 'obgyn',
+          'obstetricsgynaecology': 'obgyn',
+          'obstetricsandgynaecology': 'obgyn',
+          'paediatrics': 'pediatrics',
+          'pediatrics': 'pediatrics',
+          'anaesthesia': 'anesthesia',
+          'anesthesia': 'anesthesia',
+          'orthopaedics': 'orthopedics',
+          'orthopedics': 'orthopedics',
+          'communitymedicine': 'community',
+          'communitymed': 'community',
+          'ent': 'ent',
+          'ophthalmology': 'ophthalmology',
+          'pathology': 'pathology',
+          'pharmacology': 'pharmacology',
+          'microbiology': 'microbiology',
+          'biochemistry': 'biochemistry',
+          'radiology': 'radiology',
+          'dermatology': 'dermatology',
+          'psychiatry': 'psychiatry',
+          'medicine': 'medicine',
+          'surgery': 'surgery',
+          'anatomy': 'anatomy',
+        };
+
+        // Accumulate by subjectId to deduplicate multiple extracted rows for same subject
+        const accum: Record<string, { totalQuestions: number; correctAnswers: number; }> = {};
+
         for (const extractedScore of extractedData.subjectScores) {
-          // Try to find matching subject by name (case insensitive)
-          const matchingSubject = subjects.find(subject => 
-            subject.name.toLowerCase().includes(extractedScore.subjectName.toLowerCase()) ||
-            extractedScore.subjectName.toLowerCase().includes(subject.name.toLowerCase())
-          );
-          
-          if (matchingSubject) {
+          const rawName = extractedScore.subjectName || '';
+          const norm = normalize(rawName);
+
+          let matched: typeof subjects[0] | undefined;
+
+          // 1) Exact normalized match
+          matched = lookup.get(norm);
+
+          // 2) Synonyms map
+          if (!matched && SYNONYMS[norm]) {
+            const synId = SYNONYMS[norm];
+            matched = subjects.find(s => s.id === synId);
+          }
+
+          // 3) Fallback: contains/contains (looser matching)
+          if (!matched) {
+            matched = subjects.find(subject => {
+              const subjectNorm = normalize(subject.name);
+              return norm.includes(subjectNorm) || subjectNorm.includes(norm) || subjectNorm.startsWith(norm) || norm.startsWith(subjectNorm);
+            });
+          }
+
+          if (matched) {
+            const subjId = matched.id;
+            const totalQ = Number(extractedScore.totalQuestions) || 0;
+            const correctA = Number(extractedScore.correctAnswers) || 0;
+
+            if (!accum[subjId]) {
+              accum[subjId] = { totalQuestions: 0, correctAnswers: 0 };
+            }
+
+            accum[subjId].totalQuestions += totalQ;
+            accum[subjId].correctAnswers += correctA;
+          } else {
+            console.warn('Unmatched extracted subject name:', rawName);
+          }
+        }
+
+        // Convert accum to subjectScoresList with calculated percentage
+        for (const [subjectId, stats] of Object.entries(accum)) {
+          if (stats.totalQuestions > 0) {
             subjectScoresList.push({
-              subjectId: matchingSubject.id,
-              totalQuestions: extractedScore.totalQuestions,
-              correctAnswers: extractedScore.correctAnswers,
-              percentage: extractedScore.percentage,
+              subjectId,
+              totalQuestions: stats.totalQuestions,
+              correctAnswers: stats.correctAnswers,
+              percentage: (stats.correctAnswers / stats.totalQuestions) * 100,
             });
           }
         }

@@ -97,24 +97,7 @@ export default function ProgressScreen() {
         </View>
       </TouchableOpacity>
 
-      {/* Debug Info */}
-      <View style={styles.debugInfo}>
-        <Text style={styles.debugText}>Sessions: {studySessions.length} | Subjects: {subjects.length} | Loading: {isLoading ? 'Yes' : 'No'}</Text>
-        <View style={styles.debugButtons}>
-          <TouchableOpacity 
-            style={styles.debugButton}
-            onPress={debugStoredData}
-          >
-            <Text style={styles.debugButtonText}>Debug Storage</Text>
-          </TouchableOpacity>
-          <TouchableOpacity 
-            style={[styles.debugButton, styles.recoveryButton]}
-            onPress={forceInitializeSubjects}
-          >
-            <Text style={styles.debugButtonText}>Force Init Subjects</Text>
-          </TouchableOpacity>
-        </View>
-      </View>
+      {/* Debug Info removed in production: debug buttons hidden */}
 
       {/* Action Buttons */}
       <View style={styles.actionButtons}>
@@ -260,12 +243,6 @@ export default function ProgressScreen() {
           <View style={styles.noSubjectsContainer}>
             <Text style={styles.noSubjectsText}>No subjects found</Text>
             <Text style={styles.noSubjectsHint}>Subjects will be initialized automatically</Text>
-            <TouchableOpacity 
-              style={styles.initializeButton}
-              onPress={forceInitializeSubjects}
-            >
-              <Text style={styles.initializeButtonText}>Initialize Subjects</Text>
-            </TouchableOpacity>
           </View>
         ) : (
           subjects.map(subject => {
